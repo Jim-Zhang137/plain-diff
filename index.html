@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PlainDiff 文本对比工具 v1.1.0</title>
+
+  <!-- 兼容 npm 版 diff-match-patch（其末尾有 module.exports，浏览器直接引入会报错，这里做兼容） -->
+  <script>window.module = window.module || { exports: {} };</script>
+
+  <!-- diff-match-patch 差异算法库（指定 CDN 地址） -->
+  <script src="https://cdn.jsdelivr.net/npm/diff-match-patch@1.0.5/index.js"></script>
+
+  <!-- 离线兜底：CDN 不可用时改用同目录下的本地副本（vendor/diff-match-patch.js） -->
+  <script>
+    if (typeof diff_match_patch === 'undefined') {
+      document.write('<script src="vendor/diff-match-patch.js"><\/script>');
+    }
+  </script>
+
+  <!-- 本地样式与逻辑，便于维护 -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- 顶部：标题 + 版本 + 中文操作按钮 -->
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <span class="title">PlainDiff 文本对比工具</span>
+        <span class="version">v1.1.0</span>
+      </div>
+
+      <div class="toolbar" role="toolbar" aria-label="全局操作工具栏">
+        <button type="button" id="btnSwap"       class="btn">交换左右</button>
+        <button type="button" id="btnFold"       class="btn" aria-pressed="false"
+                title="折叠连续的未改动区域，仅保留差异前后各 3 行上下文">折叠未改动</button>
+        <button type="button" id="btnClear"      class="btn btn-danger">清空全部</button>
+        <button type="button" id="btnCopyResult" class="btn btn-primary">复制对比结果</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div id="banner" class="banner" role="alert"></div>
+
+    <!-- 差异统计 -->
+    <div class="stats-bar" aria-live="polite">
+      <span class="add">新增 <b id="statAdd">0</b> 行</span>
+      <span class="del">删除 <b id="statDel">0</b> 行</span>
+      <span>相同 <b id="statEq">0</b> 行</span>
+      <span class="diff-nav" aria-label="差异导航">
+        差异 <b id="diffCur">0</b>/<b id="diffTotal">0</b>
+        <button type="button" id="btnPrevDiff" class="btn btn-sm" title="上一个差异（F7）">上一个 <span class="key-hint">F7</span></button>
+        <button type="button" id="btnNextDiff" class="btn btn-sm" title="下一个差异（F8）">下一个 <span class="key-hint">F8</span></button>
+      </span>
+    </div>
+
+    <div class="compare-grid">
+      <!-- 左侧：原始文本 -->
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-heading">
+            <span>原始文本</span>
+            <span class="line-count" id="countLeft">0 行</span>
+          </div>
+          <div class="panel-actions" role="toolbar" aria-label="左侧文本操作">
+            <button type="button" id="btnImportLeft" class="btn btn-sm" aria-label="导入左侧文件" title="导入左侧文件">导入</button>
+            <button type="button" id="btnPasteLeft"  class="btn btn-sm" aria-label="粘贴到左侧" title="粘贴到左侧">粘贴</button>
+            <button type="button" id="btnCopyLeft"   class="btn btn-sm" aria-label="复制左侧文本" title="复制左侧文本">复制</button>
+            <button type="button" id="btnClearLeft"  class="btn btn-sm btn-danger" aria-label="清空左侧文本" title="只清空左侧文本，不影响右侧">清空</button>
+          </div>
+        </div>
+        <div class="editor-body">
+          <div class="gutter" id="gutterLeft" aria-hidden="true"><div class="gutter-inner" id="gutterInnerLeft"></div></div>
+          <div class="editor-wrap">
+            <!-- 背景高亮层：只显示颜色，文字透明，位于 textarea 下方 -->
+            <div class="backdrop" id="backdropLeft" aria-hidden="true"><div class="backdrop-inner" id="backdropInnerLeft"></div></div>
+            <!-- 真正可编辑的输入框：文字可见，背景透明 -->
+            <textarea id="textA" class="editor" wrap="off" spellcheck="false"
+                      autocomplete="off" autocorrect="off" autocapitalize="off"
+                      placeholder="在此输入或粘贴原始文本…"
+                      aria-label="原始文本输入框">PlainDiff 功能体验（原始稿）
+版本：v1.0.0
+
+一、并排对比
+- 左右两栏同时显示文本
+- 相同内容落在同一视觉行
+- 多出来的一侧显示占位行
+- 占位行不可编辑，点击跳到真实行
+- 行号旁用 - / + 标出删除与新增
+- 相同行不显示符号，便于定位
+
+二、差异呈现
+- 修改行：左侧为旧文案
+- 左侧独有：右侧会补占位行
+- 右侧独有：左侧会补占位行
+- 行尾换行只作终止符，不多算一行
+- 左栏独有：用于体验右侧占位行
+
+三、视图操作
+- 上下滚动左右同步
+- 横向滚动也同步，长行可逐字对照
+- 差异导航：F7 上一个，F8 下一个
+- 点击迷你条可跳到最近差异
+- 折叠需点击顶部「折叠未改动」
+
+四、文本细节
+- 中文、emoji（🚀）、制表符、空行都能保持对齐
+- 这是一条用于体验横向滚动的超长行，左右两栏会同步滚动，便于逐字对照长行内容是否一致；拖动底部滚动条即可验证两栏始终停在同一水平位置，行首行尾都能逐字比对，再长的配置行也不会错位。
+[settings]
+	indent = "tab"
+	wrap = "off"
+
+五、常用按钮
+- 单侧：导入 / 粘贴 / 复制 / 清空
+- 顶部：交换左右 / 清空全部 / 复制对比结果
+</textarea>
+          </div>
+          <!-- 右侧迷你差异标记条 -->
+          <div class="minimap" id="mapLeft" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <!-- 右侧：新文本 -->
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-heading">
+            <span>新文本</span>
+            <span class="line-count" id="countRight">0 行</span>
+          </div>
+          <div class="panel-actions" role="toolbar" aria-label="右侧文本操作">
+            <button type="button" id="btnImportRight" class="btn btn-sm" aria-label="导入右侧文件" title="导入右侧文件">导入</button>
+            <button type="button" id="btnPasteRight"  class="btn btn-sm" aria-label="粘贴到右侧" title="粘贴到右侧">粘贴</button>
+            <button type="button" id="btnCopyRight"   class="btn btn-sm" aria-label="复制右侧文本" title="复制右侧文本">复制</button>
+            <button type="button" id="btnClearRight"  class="btn btn-sm btn-danger" aria-label="清空右侧文本" title="只清空右侧文本，不影响左侧">清空</button>
+          </div>
+        </div>
+        <div class="editor-body">
+          <div class="gutter" id="gutterRight" aria-hidden="true"><div class="gutter-inner" id="gutterInnerRight"></div></div>
+          <div class="editor-wrap">
+            <div class="backdrop" id="backdropRight" aria-hidden="true"><div class="backdrop-inner" id="backdropInnerRight"></div></div>
+            <textarea id="textB" class="editor" wrap="off" spellcheck="false"
+                      autocomplete="off" autocorrect="off" autocapitalize="off"
+                      placeholder="在此输入或粘贴新文本…"
+                      aria-label="新文本输入框">PlainDiff 功能体验（修订稿）
+版本：v1.1.0
+
+一、并排对比
+- 左右两栏同时显示文本
+- 相同内容落在同一视觉行
+- 多出来的一侧显示占位行
+- 占位行不可编辑，点击跳到真实行
+- 行号旁用 - / + 标出删除与新增
+- 相同行不显示符号，便于定位
+
+二、差异呈现
+- 修改行：右侧为新文案
+- 左侧独有：右侧会补占位行
+- 右侧独有：左侧会补占位行
+- 行尾换行只作终止符，不多算一行
+
+三、视图操作
+- 上下滚动左右同步
+- 横向滚动也同步，长行可逐字对照
+- 差异导航：F7 上一个，F8 下一个
+- 点击迷你条可跳到最近差异
+- 折叠需点击顶部「折叠未改动」
+- 悬停折叠文字会显示手势光标
+
+四、文本细节
+- 中文、emoji（🚀✅）、制表符、空行都能保持对齐
+- 这是一条用于体验横向滚动的超长行，左右两栏会同步滚动，便于逐字对照长行内容是否一致；拖动底部滚动条即可验证两栏始终停在同一水平位置，行首行尾都能逐字比对，再长的配置行也不会错位。
+[settings]
+	indent = "tab"
+	wrap = "off"
+	tabKey = "insert"
+
+五、常用按钮
+- 单侧：导入 / 粘贴 / 复制 / 清空
+- 顶部：交换左右 / 清空全部 / 复制对比结果
+</textarea>
+          </div>
+          <!-- 右侧迷你差异标记条 -->
+          <div class="minimap" id="mapRight" aria-hidden="true"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    所有内容默认只在浏览器内处理，文本数据永远不上传服务器
+  </footer>
+
+  <!-- 提示浮层 -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- 业务逻辑（放在末尾，DOM 已就绪） -->
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+# Changelog
+
+本项目的显著变更将记录在此文件中。
+
+格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本思路（按实际发布情况调整）。
+
+## [Unreleased]
+
+### Changed
+- 项目名称统一为 `PlainDiff`（同步更新界面文案、报告标题与调试导出名）。
+- 完善开源相关内容：新增 MIT 许可证、贡献指南、忽略文件、CI 与 Issue/PR 模板，并更新 README。
+
+## [1.1.0] - 2026
+
+### Added
+- 左右并排文本对比与字符级差异高亮。
+- 行级对齐视图、占位行、差异统计与导航（F7/F8、迷你条跳转）。
+- 手动折叠未改动区域、折叠展开交互与相关保护逻辑。
+- 单侧/全局导入、粘贴、复制、清空、交换、拖拽导入等操作。
+- 本地 `diff-match-patch` 兜底加载与纯前端本地处理能力。
+- 逻辑自测与静态检查脚本（`tests/logic.test.js`、`tests/static-check.js`）。

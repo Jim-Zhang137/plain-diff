@@ -1,0 +1,655 @@
+/* ============================================================
+   PlainDiff 文本对比工具 v1.1.0 — 样式表
+   ------------------------------------------------------------
+   核心思路（重要，修改前请先读）：
+   1. 每个面板由三部分叠加而成：
+      .gutter   行号栏（在左侧，跟随 textarea 垂直滚动）
+      .backdrop 高亮背景层（文字透明，只显示红/绿底色）
+      .editor   真正的 <textarea>（文字可见，背景透明，可编辑）
+   2. .backdrop 与 .editor 的字体、字号、行高、内边距、tab-size
+      必须完全一致，否则高亮会错位。修改时务必同步调整。
+   3. 行高固定 20px，保证 1 逻辑行 = 1 视觉行（关闭自动换行），
+      这样行号才能与文本严格对齐。
+   ============================================================ */
+
+:root {
+  --bg: #f5f7fa;
+  --panel-bg: #ffffff;
+  --border: #e2e6ec;
+  --border-strong: #cfd6e0;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --danger: #dc2626;
+  --danger-dark: #b91c1c;
+  --add-bg: #a9e7b8;          /* 新增字符底色（右）：比整行底色明显更深 */
+  --add-bg-line: #eafbf0;     /* 新增行整行底色 */
+  --add-fg: #08660f;
+  --del-bg: #ffb9b9;          /* 删除字符底色（左）：比整行底色明显更深 */
+  --del-bg-line: #fff0f0;     /* 删除行整行底色 */
+  --del-fg: #a41313;
+  --gutter-bg: #fafbfc;
+  --gutter-fg: #9aa3af;
+  --gutter-width: 58px;
+  --minimap-width: 8px;
+
+  /* 三处共享的排版参数（必须一致） */
+  --editor-font: "Consolas", "Cascadia Mono", "SFMono-Regular", "Menlo",
+                 "Courier New", monospace, "Microsoft YaHei", sans-serif;
+  --editor-size: 13px;
+  --editor-line-height: 20px;
+  --editor-pad-y: 8px;
+  --editor-pad-x: 12px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  height: 100vh;
+  overflow: hidden;               /* 页面本身不滚动，滚动交给左右两个编辑框 */
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei",
+               "PingFang SC", "Hiragino Sans GB", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------
+   顶部：标题 + 版本 + 中文按钮
+   ------------------------------------------------------------ */
+header {
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  flex: 0 0 auto;
+}
+
+.header-inner {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.brand .title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.brand .version {
+  font-size: 12px;
+  color: var(--muted);
+  background: #eef2f7;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* 通用按钮 */
+.btn {
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 7px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: #f1f5f9;
+  border-color: #b9c2cf;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* :focus 作为老浏览器兜底；支持 :focus-visible 的浏览器会覆盖为仅在键盘聚焦时显示 */
+.btn:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+}
+
+.btn-danger {
+  color: var(--danger);
+  border-color: #f0b9b9;
+  background: #fff7f7;
+}
+
+.btn-danger:hover {
+  background: #ffecec;
+  border-color: var(--danger);
+}
+
+/* 面板内的紧凑按钮 */
+.btn-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 5px;
+}
+
+/* 快捷键提示：直接显示在差异导航按钮上，不用鼠标悬停也能看到 F7/F8 */
+.key-hint {
+  display: inline-block;
+  margin-left: 2px;
+  padding: 1px 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1.4;
+  vertical-align: 1px;
+}
+
+/* ------------------------------------------------------------
+   主体
+   ------------------------------------------------------------ */
+main {
+  flex: 1 1 auto;
+  max-width: 1600px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+/* 提示横幅（例如 CDN 加载失败） */
+.banner {
+  display: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff7e6;
+  border: 1px solid #f5cf87;
+  color: #8a5a00;
+}
+
+.banner.show { display: block; }
+
+/* 统计条 */
+.stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 6px 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.stats-bar b {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.stats-bar .add b { color: var(--add-fg); }
+.stats-bar .del b { color: var(--del-fg); }
+
+/* 差异导航：靠右显示，按钮上直接标出 F7 / F8 快捷键 */
+.diff-nav {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------
+   左右对比面板
+   ------------------------------------------------------------ */
+.compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+@media (max-width: 860px) {
+  .compare-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.panel-head {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  background: #f7f9fb;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.panel-head .line-count {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 每侧专属的操作按钮，居中放在对应文本框顶部 */
+.panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  /* 行号栏比迷你条宽，偏移差值的一半，使按钮组对准文本区中线 */
+  transform: translateX(calc((var(--gutter-width) - var(--minimap-width)) / 2));
+}
+
+/* 窄屏时按钮组换行并居中，避免和左侧标题挤在一起 */
+@media (max-width: 560px) {
+  .panel-head {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 编辑器容器：行号 + 编辑区 */
+.editor-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+/* 行号栏 */
+.gutter {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--gutter-width);
+  overflow: hidden;                 /* JS 平移 .gutter-inner，不显示自身滚动条 */
+  background: var(--gutter-bg);
+  border-right: 1px solid var(--border);
+  color: var(--gutter-fg);
+  font-family: var(--editor-font);
+  font-size: 12px;
+  line-height: var(--editor-line-height);
+  user-select: none;
+}
+
+.gutter-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: var(--editor-pad-y) 0;   /* 顶部与文本首行对齐 */
+}
+
+.gutter-line {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: var(--editor-line-height);
+  line-height: var(--editor-line-height);
+  padding-right: 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 行号右对齐，紧跟着放差异符号：- 删除 / + 新增 / 空 相同 */
+.gutter-line .ln {
+  min-width: 2ch;
+  text-align: right;
+}
+
+.gutter-line .sign {
+  width: 12px;
+  margin-left: 4px;
+  text-align: center;
+  font-weight: 700;
+}
+
+/* 有差异的行号轻微着色，便于定位 */
+.gutter-line.is-add { background: var(--add-bg-line); color: #17803d; }
+.gutter-line.is-del { background: var(--del-bg-line); color: #b42318; }
+.gutter-line.is-placeholder {
+  background: repeating-linear-gradient(90deg, #f3f5f8 0 2px, transparent 2px 6px);
+}
+.gutter-line.is-editable-blank { background: transparent; }
+.gutter-line.is-fold {
+  background: #eef4ff;
+  cursor: pointer;
+}
+/* 鼠标停在折叠文字上时，行号栏同步高亮，强化“可点击”的提示 */
+.gutter-line.is-fold.is-hover { background: #dbe7ff !important; }
+.gutter-line.is-fold .fold-mark {
+  color: var(--primary);
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+/* 编辑区包裹层（backdrop 与 textarea 的定位基准） */
+.editor-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 高亮背景层：文字透明，只显示颜色 */
+.backdrop {
+  position: absolute;
+  /* 不用 inset：Chrome 80~86 / Safari 14.0 不支持，四边分开写兼容范围更广 */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+  border: 0;
+  background: var(--panel-bg);
+  color: transparent;
+  font-family: var(--editor-font);
+  font-size: var(--editor-size);
+  line-height: var(--editor-line-height);
+  tab-size: 4;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  /* 隐藏滚动条占位差异：backdrop 不显示滚动条 */
+  scrollbar-width: none;
+}
+
+.backdrop::-webkit-scrollbar { width: 0; height: 0; }
+
+/* 行内容放在这一层里，JS 用 translate 跟随 textarea；
+   不再用 scrollTop，避免和 textarea 的滚动条占位差异导致错位 */
+.backdrop-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: var(--editor-pad-y) var(--editor-pad-x);
+}
+
+/* 背景层每行：width 用 max-content 让底色覆盖整行到内容结束 */
+.bline {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  height: var(--editor-line-height);
+  line-height: var(--editor-line-height);
+  white-space: pre;
+}
+
+/* 整行差异底色（很浅，用于定位整行） */
+.bline.is-add { background: var(--add-bg-line); }
+.bline.is-del { background: var(--del-bg-line); }
+
+/* 占位行：另一侧多出来的内容在本侧没有对应行，画一条浅灰点阵提示不可编辑 */
+.bline.is-placeholder {
+  background: repeating-linear-gradient(90deg, #f3f5f8 0 2px, transparent 2px 6px);
+}
+
+/* 空侧的可编辑空行：没有内容也没有底色，但可以落光标直接粘贴 */
+.bline.is-editable-blank { background: #fff; }
+
+/* 折叠行：浅蓝条纹底色；「未改动（点击展开）」文字直接由 textarea 显示，点击即可展开 */
+.bline.is-fold {
+  background: repeating-linear-gradient(90deg, #eef4ff 0 8px, #f7faff 8px 16px);
+}
+/* textarea 上方背景层不接收鼠标事件，悬停高亮由 JS 加 .is-hover 控制 */
+.bline.is-fold.is-hover {
+  background: repeating-linear-gradient(90deg, #dbe7ff 0 8px, #edf3ff 8px 16px);
+}
+
+/* 当前差异闪烁提示（导航按钮/迷你条跳转后短暂显示） */
+.bline.is-current { box-shadow: inset 0 0 0 2px rgba(37, 99, 235, .55); }
+.gutter-line.is-current { background: #e0eaff !important; }
+
+.ph-dot {
+  color: #b9c0cb;
+  font-size: 12px;
+}
+
+/* 行内字符级高亮（与 textarea 文字位置严格重合） */
+.seg-ins {
+  background: var(--add-bg);
+  color: transparent;
+  border-radius: 2px;
+}
+
+.seg-del {
+  position: relative;
+  background: var(--del-bg);
+  color: transparent;
+  border-radius: 2px;
+}
+
+/* 删除位置开头画一条 2px 深色细竖线：绝对定位，不占字符宽度，
+   所以不会影响高亮层与 textarea 的文字对齐 */
+.seg-del::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  background: var(--del-fg);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* 纯插入时的占位符：画在左侧"被插入位置"上，零宽且不占排版 */
+.ins-placeholder {
+  position: relative;
+  display: inline;
+}
+
+.ins-placeholder::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  background: var(--del-fg);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* 右侧对称的窄占位符：左侧多出来的字符在右侧对应位置显示深绿色 */
+.ins-placeholder.is-add::before { background: var(--add-fg); }
+
+/* 真正的可编辑输入框 */
+.editor {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: var(--editor-pad-y) var(--editor-pad-x);
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;          /* 让 backdrop 的颜色透出来 */
+  color: var(--text);
+  font-family: var(--editor-font);
+  font-size: var(--editor-size);
+  line-height: var(--editor-line-height);
+  tab-size: 4;
+  white-space: pre;                 /* 不自动换行，保证行号对齐 */
+  overflow: auto;
+  caret-color: var(--primary);
+  -webkit-text-fill-color: var(--text);
+}
+
+.editor::placeholder {
+  color: #b3bac4;
+}
+
+.editor::selection {
+  background: rgba(37, 99, 235, 0.22);
+}
+
+/* 自定义滚动条 */
+.editor::-webkit-scrollbar { width: 10px; height: 10px; }
+.editor::-webkit-scrollbar-track { background: transparent; }
+.editor::-webkit-scrollbar-thumb {
+  background: #cbd3dd;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.editor::-webkit-scrollbar-thumb:hover { background: #aeb8c5; background-clip: padding-box; }
+
+/* 迷你差异标记条（贴在面板最右侧，红=删除 绿=新增） */
+.minimap {
+  position: relative;
+  flex: 0 0 var(--minimap-width);
+  width: var(--minimap-width);
+  background: #f7f9fb;
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+/* 所有标记放在这一层里，JS 按 textarea 的 scrollTop 整体平移 */
+.minimap-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+}
+
+.minimap .mark {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  min-height: 2px;
+  border-radius: 1px;
+}
+
+.minimap .mark-del { background: #ef4444; }
+.minimap .mark-ins { background: #22c55e; }
+
+/* ------------------------------------------------------------
+   页脚、提示浮层
+   ------------------------------------------------------------ */
+footer {
+  flex: 0 0 auto;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 10px 16px;
+  background: var(--panel-bg);
+  border-top: 1px solid var(--border);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%) translateY(12px);
+  z-index: 999;
+  max-width: 80vw;
+  padding: 9px 16px;
+  border-radius: 20px;
+  background: rgba(17, 24, 39, 0.92);
+  color: #ffffff;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
