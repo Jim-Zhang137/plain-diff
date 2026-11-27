@@ -33,6 +33,7 @@
   --gutter-fg: #9aa3af;
   --gutter-width: 58px;
   --minimap-width: 8px;
+  --current-frame: rgba(37, 99, 235, .7);  /* 当前差异块的选中框 */
 
   /* 三处共享的排版参数（必须一致） */
   --editor-font: "Consolas", "Cascadia Mono", "SFMono-Regular", "Menlo",
@@ -487,8 +488,27 @@ main {
   background: repeating-linear-gradient(90deg, #dbe7ff 0 8px, #edf3ff 8px 16px);
 }
 
-/* 当前差异闪烁提示（导航按钮/迷你条跳转后短暂显示） */
-.bline.is-current { box-shadow: inset 0 0 0 2px rgba(37, 99, 235, .55); }
+/* 当前差异块的选中框：跳转后持续保留，直到跳到下一块或内容重算后消失。
+   每行只画左右两条竖边；首行补上边、末行补下边，连起来就是一个完整的框，
+   多行差异不会每行各画一个小框。 */
+.bline.is-current,
+.gutter-line.is-current {
+  box-shadow: inset 2px 0 0 var(--current-frame), inset -2px 0 0 var(--current-frame);
+}
+.bline.is-current.cur-first,
+.gutter-line.is-current.cur-first {
+  box-shadow: inset 2px 0 0 var(--current-frame), inset -2px 0 0 var(--current-frame),
+              inset 0 2px 0 var(--current-frame);
+}
+.bline.is-current.cur-last,
+.gutter-line.is-current.cur-last {
+  box-shadow: inset 2px 0 0 var(--current-frame), inset -2px 0 0 var(--current-frame),
+              inset 0 -2px 0 var(--current-frame);
+}
+.bline.is-current.cur-first.cur-last,
+.gutter-line.is-current.cur-first.cur-last {
+  box-shadow: inset 0 0 0 2px var(--current-frame);
+}
 .gutter-line.is-current { background: #e0eaff !important; }
 
 .ph-dot {

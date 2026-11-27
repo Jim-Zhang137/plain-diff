@@ -437,6 +437,32 @@ eq('esc', T.esc('<b>&"x"</b>'), '&lt;b&gt;&amp;"x"&lt;/b&gt;');
   // 未改变时的差异索引应与折叠无关
   eq('导航/未折叠时索引即全部差异行', T.changedRowIndices(rows), [6]);
 
+  /* 导航按"连续差异块"跳转：相邻差异行合并，整块算 1 */
+  eq('导航块/空索引返回空块列表', T.groupDiffBlocks([]), []);
+  eq('导航块/单个差异行算一块', T.groupDiffBlocks([6]), [{ start: 6, end: 6 }]);
+  eq('导航块/相邻行合并成一块', T.groupDiffBlocks([2, 3, 4]), [{ start: 2, end: 4 }]);
+  eq('导航块/隔行差异分成多块',
+     T.groupDiffBlocks([2, 3, 4, 9, 10, 15]),
+     [{ start: 2, end: 4 }, { start: 9, end: 10 }, { start: 15, end: 15 }]);
+
+  // 真实行级 diff：连续两行修改应只得到 1 个导航块
+  const blockA = 'a\nb\nc\nd\ne\n';
+  const blockB = 'a\nB\nC\nd\ne\n';
+  const blockLd = T.lineDiffs(dmp, blockA, blockB);
+  const blockRows = T.alignRows(blockLd, T.sourceLineCount(blockA), T.sourceLineCount(blockB));
+  const blockIndices = T.changedRowIndices(blockRows);
+  ok('导航块/连续修改产生相邻差异行', blockIndices.length >= 2 &&
+     blockIndices.every((v, i) => i === 0 || v === blockIndices[i - 1] + 1), JSON.stringify(blockIndices));
+  eq('导航块/连续修改合并为一块', T.groupDiffBlocks(blockIndices),
+     [{ start: blockIndices[0], end: blockIndices[blockIndices.length - 1] }]);
+
+  // 不相邻的改动仍是多块，计数不会把整个文件算成 1
+  const splitA = 'a\nb\nc\nd\ne\nf\n';
+  const splitB = 'A\nb\nc\nD\ne\nF\n';
+  const splitLd = T.lineDiffs(dmp, splitA, splitB);
+  const splitRows = T.alignRows(splitLd, T.sourceLineCount(splitA), T.sourceLineCount(splitB));
+  eq('导航块/分散改动分成三块', T.groupDiffBlocks(T.changedRowIndices(splitRows)).length, 3);
+
   // 折叠行现在直接把“未改动 + 行数”写进 textarea，点击即可展开
   ok('折叠/折叠行在文本框中可见未改动', T.FOLD.indexOf('未改动') !== -1, T.FOLD);
   ok('折叠/可见文案仍被识别为折叠行', T.isFoldLine(T.FOLD));

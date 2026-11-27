@@ -124,6 +124,13 @@ else good('上一个/下一个按钮上直接显示 F7/F8 快捷键');
 if (!/\.bline\.is-fold/.test(css) || !/\.gutter-line\.is-fold/.test(css) || !/\.is-current/.test(css)) bad('缺少折叠行/当前差异样式');
 else good('折叠行与当前差异高亮样式齐全');
 
+if (!/\.bline\.is-current\.cur-first/.test(css) || !/\.bline\.is-current\.cur-last/.test(css) ||
+    !/cur-first/.test(js) || !/cur-last/.test(js)) bad('当前差异块缺少首末行标记，多行块会画成多个小框');
+else good('当前差异块用首末行标记拼成整块边框');
+
+if (/flashTimer|setTimeout\(clearCurrentBlock/.test(js)) bad('当前差异块高亮仍会自动消失');
+else good('当前差异块选中框持续保留，直到切换块或重算');
+
 if (/chkAutoFold/.test(html + js)) bad('自动折叠勾选框未彻底移除');
 else good('自动折叠勾选框已移除');
 

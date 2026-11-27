@@ -379,6 +379,23 @@
   }
 
   /**
+   * 把"逐行差异索引"合并成"连续差异块"：视图行号相邻的差异行算同一块。
+   * 导航按块跳转：块内不再逐行停靠，一个连续块在计数里只算 1。
+   * 入参按升序传入（changedRowIndices / foldRows.diffIndices 都是升序）。
+   * @returns {Array<{start:number, end:number}>} 视图行号区间，含首尾
+   */
+  function groupDiffBlocks(indices) {
+    var blocks = [];
+    for (var i = 0; i < indices.length; i++) {
+      var line = indices[i];
+      var last = blocks[blocks.length - 1];
+      if (last && line === last.end + 1) last.end = line;
+      else blocks.push({ start: line, end: line });
+    }
+    return blocks;
+  }
+
+  /**
    * 把对齐行 + 某侧字符级行模型，拼成 textarea 里真正显示的行。
    * ensureEditable：本侧真实文本为空但对侧有内容时，第一行保留为可编辑空行，
    * 这样用户点击后可以直接粘贴，而不会被占位行保护拦住。
@@ -712,9 +729,8 @@
   var foldEnabled = false;                   // 当前视图是否折叠（仅用户点击按钮时改变）
   var hasVisibleFolds = false;               // 当前视图里是否真的还有折叠行
   var expandedFolds = Object.create(null);   // 用户点开过的折叠块 id
-  var diffViewIndices = [];                  // 当前视图中的差异行号（两侧对齐）
-  var diffCursor = -1;                       // 当前定位到第几个差异（0 起）
-  var flashTimer = null;
+  var diffBlocks = [];                       // 当前视图中的连续差异块（导航按块跳转）
+  var diffCursor = -1;                       // 当前定位到第几个差异块（0 起）
 
   function $(id) { return document.getElementById(id); }
 
@@ -956,7 +972,8 @@
       : { rows: baseRows, diffIndices: changedRowIndices(baseRows) };
     var rows = foldPlan.rows;
 
-    diffViewIndices = foldPlan.diffIndices;
+    // 相邻差异行合并成一块：连续几行改动只算 1 个差异，导航整块跳过
+    diffBlocks = groupDiffBlocks(foldPlan.diffIndices);
     diffCursor = -1;
 
     var viewLeft = buildViewLines(rows, leftModel, 'left', b !== '', flags);
@@ -1026,32 +1043,46 @@
   }
 
   function updateDiffNav() {
-    var total = diffViewIndices.length;
+    var total = diffBlocks.length;   // 连续差异行算一块，只计 1
     if (el.diffTotal) el.diffTotal.textContent = total;
     if (el.diffCur) el.diffCur.textContent = diffCursor >= 0 ? diffCursor + 1 : 0;
     if (el.btnPrevDiff) el.btnPrevDiff.disabled = total === 0;
     if (el.btnNextDiff) el.btnNextDiff.disabled = total === 0;
   }
 
-  function clearFlash() {
+  /** 清掉旧的当前块标记（切换块或重算时调用，不设定时器，选中框会一直保留） */
+  function clearCurrentBlock() {
     [el.backdropInnerLeft, el.backdropInnerRight, el.gutterInnerLeft, el.gutterInnerRight].forEach(function (node) {
       if (!node) return;
-      for (var i = 0; i < node.children.length; i++) node.children[i].classList.remove('is-current');
+      for (var i = 0; i < node.children.length; i++) {
+        node.children[i].classList.remove('is-current', 'cur-first', 'cur-last');
+      }
     });
   }
 
-  function flashLine(idx) {
-    clearFlash();
+  /**
+   * 给整个差异块画一个选中框，持续显示直到跳转/重算。
+   * 首行加 cur-first（上边）、末行加 cur-last（下边），中间行只保留左右边，
+   * CSS 拼起来就是一个完整矩形，而不是每行各一个小框。
+   */
+  function markCurrentBlock(start, end) {
+    clearCurrentBlock();
     [el.backdropInnerLeft, el.backdropInnerRight, el.gutterInnerLeft, el.gutterInnerRight].forEach(function (node) {
-      if (node && idx < node.children.length) node.children[idx].classList.add('is-current');
+      if (!node) return;
+      var from = Math.max(0, start), to = Math.min(end, node.children.length - 1);
+      for (var i = from; i <= to; i++) {
+        var line = node.children[i];
+        line.classList.add('is-current');
+        if (i === from) line.classList.add('cur-first');
+        if (i === to) line.classList.add('cur-last');
+      }
     });
-    clearTimeout(flashTimer);
-    flashTimer = setTimeout(clearFlash, 1400);
   }
 
-  function scrollBothToLine(idx) {
+  /** 把差异块滚到视野中间；单行时与原逐行跳转的位置完全一致 */
+  function scrollBothToRange(start, end) {
     var m = editorMetrics();
-    var top = m.padTop + idx * m.lineHeight - (el.textA.clientHeight - m.lineHeight) / 2;
+    var top = m.padTop + ((start + end) / 2) * m.lineHeight - (el.textA.clientHeight - m.lineHeight) / 2;
     var maxA = Math.max(0, el.textA.scrollHeight - el.textA.clientHeight);
     var maxB = Math.max(0, el.textB.scrollHeight - el.textB.clientHeight);
     el.textA.scrollTop = Math.max(0, Math.min(top, maxA));
@@ -1065,30 +1096,32 @@
   }
 
   function applyDiffCursor() {
-    var line = diffViewIndices[diffCursor];
-    scrollBothToLine(line);
-    flashLine(line);
+    var block = diffBlocks[diffCursor];
+    scrollBothToRange(block.start, block.end);
+    markCurrentBlock(block.start, block.end);
     updateDiffNav();
-    toast('差异 ' + (diffCursor + 1) + ' / ' + diffViewIndices.length +
+    var size = block.end > block.start ? '（连续 ' + (block.end - block.start + 1) + ' 行算 1 块）' : '';
+    toast('差异 ' + (diffCursor + 1) + ' / ' + diffBlocks.length + size +
           (foldEnabled ? '（折叠视图）' : ''));
   }
 
-  /** step=1 下一个，-1 上一个；首尾循环 */
+  /** step=1 下一个，-1 上一个；首尾循环，每次跨过整个连续差异块 */
   function gotoDiff(step) {
-    var total = diffViewIndices.length;
+    var total = diffBlocks.length;
     if (!total) { toast('当前没有差异可跳转'); return; }
     if (diffCursor < 0) diffCursor = step > 0 ? 0 : total - 1;
     else diffCursor = (diffCursor + step + total) % total;
     applyDiffCursor();
   }
 
-  /** 点击迷你条：跳到离点击位置最近的差异 */
+  /** 点击迷你条：跳到离点击位置最近的差异块（点在块内就定位到该块） */
   function jumpToNearbyDiff(viewLine) {
-    var total = diffViewIndices.length;
+    var total = diffBlocks.length;
     if (!total) { toast('当前没有差异可跳转'); return; }
     var best = 0, bestDist = Infinity;
     for (var i = 0; i < total; i++) {
-      var d = Math.abs(diffViewIndices[i] - viewLine);
+      var b = diffBlocks[i];
+      var d = viewLine < b.start ? b.start - viewLine : (viewLine > b.end ? viewLine - b.end : 0);
       if (d < bestDist) { bestDist = d; best = i; }
     }
     diffCursor = best;
@@ -1810,6 +1843,7 @@
       tabInsertion: tabInsertion,
       foldRows: foldRows,
       changedRowIndices: changedRowIndices,
+      groupDiffBlocks: groupDiffBlocks,
       isTailRow: isTailRow,
       hasFoldLines: hasFoldLines,
       sourceLineCount: sourceLineCount,
